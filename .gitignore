@@ -9,6 +9,7 @@
 *.pfx
 id_rsa
 id_ed25519
+id_ecdsa
 
 credentials.json
 secrets.json
@@ -16,9 +17,16 @@ auth.json
 *.credentials
 .netrc
 
-# ---- local state ----
+# ---- machine-specific state ----
+# state/ holds output about THIS machine (audit reports, run markers). It is
+# meaningless in another clone and mildly identifying, so only the directory
+# itself is tracked.
+state/*
+!state/.gitkeep
+
 *.local
 *.backup-*
+*.ai-dev-backup-*
 .DS_Store
 node_modules/
 *.log

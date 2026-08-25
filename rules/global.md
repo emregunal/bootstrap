@@ -1,7 +1,10 @@
 # Global Agent Rules
 
-Managed by [opencode-bootstrap](https://github.com/) — edit `config/AGENTS.md`
-in the repository and run `opencode-sync`, not this installed copy.
+Managed by ai-dev-bootstrap. Edit `rules/global.md` in that repository and run
+`ai-dev-sync`; do not edit the copy you are reading, it is regenerated.
+
+The same file is delivered to OpenCode, Claude Code and Codex, so keep it
+agent-neutral.
 
 These are baseline defaults. A project's own `AGENTS.md` takes precedence.
 

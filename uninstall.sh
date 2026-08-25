@@ -1,118 +1,144 @@
 #!/usr/bin/env bash
 # uninstall.sh — remove what this repository installed. Nothing else.
 #
-# Removed:  the ~/.local/bin wrappers, the managed rules directory, the MCP
-#           entries and instructions path this repo added to the OpenCode
-#           config, and (with --skills) the skills listed in the manifests.
-# Kept:     OpenCode itself, your credentials, your provider/model/agent
-#           settings, any MCP server you configured yourself, and any config
+# Removed:  the ~/.local/bin wrappers, the managed directory inside each
+#           agent's config, the MCP entries and rules registrations this repo
+#           added, the shell rc block, the credential bridge, and (with
+#           --skills) the skills named in the manifests.
+# Kept:     every agent itself, your credentials, your provider/model/agent
+#           settings, any MCP server you configured yourself, and every config
 #           key this repository never wrote.
 #
-#   ./uninstall.sh              # config, aliases and rules
-#   ./uninstall.sh --skills     # also remove the manifest skills
-#   ./uninstall.sh --yes        # no confirmation prompt
+#   ./uninstall.sh            config, commands and rules
+#   ./uninstall.sh --skills   also remove the manifest skills
+#   ./uninstall.sh --yes      no confirmation prompt
+#   ./uninstall.sh --dry-run  show what would be removed
 
 set -Eeuo pipefail
-source "$(dirname "${BASH_SOURCE[0]}")/scripts/helpers.sh"
+. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/lib/common.sh"
 
 REMOVE_SKILLS=0
 ASSUME_YES=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --skills) REMOVE_SKILLS=1; shift ;;
-    --yes|-y) ASSUME_YES=1; shift ;;
-    -h|--help) printf 'Usage: ./uninstall.sh [--skills] [--yes]\n'; exit 0 ;;
-    *) fail "Unknown option: $1"; exit 1 ;;
+    --skills)  REMOVE_SKILLS=1; shift ;;
+    --yes|-y)  ASSUME_YES=1; shift ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --verbose) VERBOSE=1; shift ;;
+    -h|--help) printf 'Usage: ./uninstall.sh [--skills] [--yes] [--dry-run]\n'; exit 0 ;;
+    *) die "$EX_FAIL" "Unknown option: $1" ;;
   esac
 done
+export DRY_RUN VERBOSE
 
-banner "OpenCode Bootstrap Uninstall"
-info "OpenCode, your credentials and your own settings are left untouched."
+banner "AI Dev Uninstall"
+info "Your agents, credentials and personal settings are left untouched."
 [ "$REMOVE_SKILLS" = "1" ] && info "Skills listed in skills/*.conf will also be removed."
+is_dry_run && warn "Dry run — nothing will be removed"
 
-if [ "$ASSUME_YES" != "1" ]; then
+if [ "$ASSUME_YES" != "1" ] && ! is_dry_run; then
   printf '\n%s' "Continue? [y/N] "
   read -r reply
-  case "$reply" in [yY]*) ;; *) info "Aborted."; exit 0 ;; esac
+  case "$reply" in [yY]*) ;; *) info "Aborted."; exit "$EX_OK" ;; esac
 fi
 
-CFG="$(config_file)"
-STATE="$MANAGED_DIR/state.json"
+# --------------------------------------------------------------- adapters ----
+for agent in $(adapter_list); do
+  label="$(adapter_run "$agent" label)"
+  adapter_run "$agent" detect >/dev/null 2>&1 || continue
+  section "$label"
+  if is_dry_run; then
+    adapter_run "$agent" plan | while IFS='|' read -r kind a b _; do
+      case "$kind" in
+        LINK)  plan_action REMOVE "$(tilde "$b")" ;;
+        BLOCK) plan_action REMOVE "managed block in $(tilde "$a")" ;;
+      esac
+    done
+  else
+    adapter_run "$agent" remove
+  fi
+done
 
-section "Config"
-if has node && [ -f "$STATE" ] && [ -f "$CFG" ]; then
-  backup_config_dir
-  err="$(mktemp)"
-  node "$REPO_DIR/scripts/lib/merge-config.mjs" remove --config "$CFG" --state "$STATE" 2>"$err" || true
-  while IFS= read -r line; do
-    case "$line" in removed:*) ok "MCP removed: ${line#removed:}" ;; esac
-  done < "$err"
-  rm -f "$err"
-  ok "Managed config entries removed"
-else
-  info "No managed config state found — nothing to revert"
-fi
-
-section "Rules"
-if [ -d "$MANAGED_DIR" ]; then
-  rm -rf "$MANAGED_DIR"
-  ok "Removed $MANAGED_DIR"
-else
-  info "Nothing installed at $MANAGED_DIR"
-fi
-
+# --------------------------------------------------------------- commands ----
 section "Commands"
-for name in opencode-sync opencode-doctor; do
+while IFS='|' read -r name _; do
+  [ -n "$name" ] || continue
   p="$BIN_DIR/$name"
-  # Only remove a wrapper this repository generated.
-  if [ -f "$p" ] && grep -q '# opencode-bootstrap' "$p" 2>/dev/null; then
-    rm -f "$p"; ok "Removed $p"
+  if [ -f "$p" ] && grep -q "$WRAPPER_MARKER" "$p" 2>/dev/null; then
+    if is_dry_run; then plan_action REMOVE "$(tilde "$p")"
+    else rm -f "$p"; ok "Removed $(tilde "$p")"; fi
   elif [ -e "$p" ]; then
-    warn "$p exists but was not created by bootstrap — left in place"
+    warn "$(tilde "$p") was not created by this repository — left in place"
   else
     info "$name not installed"
   fi
+done < <(ai_dev_commands)
+
+# Commands from the previous generation of this repository, if still around.
+for name in $LEGACY_COMMANDS; do
+  p="$BIN_DIR/$name"
+  # Only ever remove a wrapper this project generated: the marker is the proof.
+  [ -f "$p" ] || continue
+  grep -q "# opencode-bootstrap" "$p" 2>/dev/null || continue
+  if is_dry_run; then plan_action REMOVE "$(tilde "$p")"
+  else rm -f "$p"; ok "Removed $(tilde "$p")"; fi
 done
 
-# Remove the managed rc block, leaving every other line in the file alone.
-BEGIN="# >>> opencode-bootstrap >>>"
-END="# <<< opencode-bootstrap <<<"
-for RC in "$HOME/.bashrc" "$HOME/.zshrc"; do
+# ------------------------------------------------------------ shell config ---
+section "Shell config"
+while IFS= read -r RC; do
   [ -f "$RC" ] || continue
-  grep -qF "$BEGIN" "$RC" || continue
-  tmp="$(mktemp)"
-  awk -v b="$BEGIN" -v e="$END" '
-    $0 == b { skip = 1 }
-    skip != 1 { print }
-    $0 == e { skip = 0 }
-  ' "$RC" > "$tmp"
-  cat "$tmp" > "$RC"
-  rm -f "$tmp"
-  ok "Removed managed block from $RC"
-done
+  for pair in "$BLOCK_BEGIN|$BLOCK_END" "$LEGACY_BLOCK_BEGIN|$LEGACY_BLOCK_END"; do
+    b="${pair%%|*}"; e="${pair##*|}"
+    grep -qF "$b" "$RC" 2>/dev/null || continue
+    if is_dry_run; then plan_action REMOVE "managed block in $(tilde "$RC")"
+    else remove_block "$RC" "$b" "$e"; ok "Removed managed block from $(tilde "$RC")"; fi
+  done
+done < <(candidate_rc_files)
 
-section "Skills"
-if [ "$REMOVE_SKILLS" = "1" ]; then
-  if has npx; then
-    for f in "$REPO_DIR"/skills/*.conf; do
-      case "$f" in *profiles.conf) continue ;; esac
-      [ -f "$f" ] || continue
-      while IFS='|' read -r repo skill; do
-        skill="$(printf '%s' "$skill" | tr -d '[:space:]')"
-        [ -n "$skill" ] || continue
-        if npx -y skills@latest remove -g -s "$skill" -y >/dev/null 2>&1; then ok "$skill"
-        else warn "$skill could not be removed"; fi
-      done < <(read_manifest "$f")
-    done
+# ------------------------------------------------------------ local state ----
+section "Local state"
+if [ -d "$LOCAL_STATE_DIR" ]; then
+  if is_dry_run; then plan_action REMOVE "$(tilde "$LOCAL_STATE_DIR")  (includes the credential bridge)"
+  else rm -rf "$LOCAL_STATE_DIR"; ok "Removed $(tilde "$LOCAL_STATE_DIR")"; fi
+else
+  info "Nothing at $(tilde "$LOCAL_STATE_DIR")"
+fi
+
+# -------------------------------------------------------------- git hooks ----
+section "Git hooks"
+if command_exists git && git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  if [ "$(git -C "$REPO_DIR" config --local --get core.hooksPath 2>/dev/null || true)" = ".githooks" ]; then
+    if is_dry_run; then plan_action UNSET "git core.hooksPath"
+    else git -C "$REPO_DIR" config --unset core.hooksPath || true; ok "core.hooksPath unset"; fi
   else
-    warn "npx not found — skills left installed"
+    info "core.hooksPath was not set by this repository"
   fi
 else
+  info "Not a git clone"
+fi
+
+# ----------------------------------------------------------------- skills ----
+section "Skills"
+if [ "$REMOVE_SKILLS" != "1" ]; then
   info "Skills kept (pass --skills to remove them)"
+elif ! command_exists npx; then
+  warn "npx not found — skills left installed"
+else
+  for f in "$REPO_DIR"/skills/*.conf; do
+    case "$f" in *profiles.conf) continue ;; esac
+    [ -f "$f" ] || continue
+    while IFS='|' read -r _ skill; do
+      skill="$(printf '%s' "$skill" | tr -d '[:space:]')"
+      [ -n "$skill" ] || continue
+      if is_dry_run; then plan_action REMOVE "skill: $skill"; continue; fi
+      if npx -y skills@latest remove -g -s "$skill" -y >/dev/null 2>&1; then ok "$skill"
+      else warn "$skill could not be removed"; fi
+    done < <(read_manifest "$f")
+  done
 fi
 
 printf '\n'
 ok "Uninstall complete"
-hint "Config backups, if any, are at ${OPENCODE_CONFIG_DIR}.backup-*"
-
-exit 0
+hint "Config backups, if any, are at $(tilde "${OPENCODE_CONFIG_DIR}").backup-*"
+exit "$EX_OK"

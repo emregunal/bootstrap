@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# pre-commit — runs the fast half of preflight on what is about to be committed.
+#
+# Activated by `git config core.hooksPath .githooks`, which setup does for you.
+# Deliberately fast and offline: no network, no skill installs, no full
+# integrity sweep. It looks at staged content only, so it stays under a second
+# on a normal commit.
+#
+# Bypass in an emergency with `git commit --no-verify`, and then go and look at
+# what you bypassed.
+
+set -Eeuo pipefail
+
+HOOK_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd -P "$HOOK_DIR/.." && pwd)"
+PREFLIGHT="$REPO_DIR/scripts/git/preflight.sh"
+
+[ -x "$PREFLIGHT" ] || { echo "pre-commit: $PREFLIGHT not found or not executable" >&2; exit 1; }
+
+rc=0
+"$PREFLIGHT" --staged || rc=$?
+
+case "$rc" in
+  0) exit 0 ;;
+  4)
+    echo "" >&2
+    echo "Commit blocked: preflight found a credential." >&2
+    echo "Fix it, or bypass with: git commit --no-verify" >&2
+    exit 1 ;;
+  *)
+    echo "" >&2
+    echo "Commit blocked: preflight failed (exit $rc)." >&2
+    echo "Bypass with: git commit --no-verify" >&2
+    exit 1 ;;
+esac
