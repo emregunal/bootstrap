@@ -238,12 +238,27 @@ MCP server'ları `mcp/mcps.json` içinde tanımlıdır. `config` bloğu doğruda
 OpenCode'un [MCP şeması](https://opencode.ai/docs/mcp-servers/) ile aynıdır ve
 config'e olduğu gibi yazılır.
 
-| Server | Tip | Gerekli env |
+| Server | Tip | Env | Anahtar yoksa |
+|---|---|---|---|
+| `context7` | remote | `CONTEXT7_API_KEY` (opsiyonel) | çalışır, anonim/rate-limited |
+| `github` | remote | `GITHUB_TOKEN` (zorunlu) | `enabled: false` yazılır |
+| `playwright` | local (`npx @playwright/mcp`) | — | — |
+| `filesystem` | local (`npx @modelcontextprotocol/server-filesystem`) | `MCP_FILESYSTEM_ROOT` (varsayılan `$HOME`) | `$HOME` kullanılır |
+
+**Zorunlu anahtarı olmayan server devre dışı yazılır.** Aksi halde OpenCode her
+açılışta bağlanmayı deneyip hata verirdi. Anahtarı `.env`'e ekleyip
+`opencode-sync` çalıştırınca otomatik olarak tekrar etkinleşir.
+
+### İki tür placeholder
+
+| Sözdizimi | Ne zaman çözülür | Ne için |
 |---|---|---|
-| `context7` | remote | `CONTEXT7_API_KEY` |
-| `github` | remote | `GITHUB_TOKEN` |
-| `playwright` | local (`npx @playwright/mcp`) | — |
-| `filesystem` | local (`npx @modelcontextprotocol/server-filesystem`) | `MCP_FILESYSTEM_ROOT` (varsayılan `$HOME`) |
+| `{env:VAR}` | OpenCode çalışırken | **secret'lar** — değer config'e yazılmaz |
+| `{install:VAR}` | bootstrap kurulum anında | makineye özel yol/port gibi **secret olmayan** değerler |
+
+`filesystem` server'ının kök dizini `{install:MCP_FILESYSTEM_ROOT}` kullanır:
+mutlak yol config'e yazılır, böylece OpenCode'un hangi shell'den başlatıldığına
+bağlı kalmaz.
 
 ### Yeni MCP ekleme
 
@@ -275,8 +290,11 @@ Remote bir server için:
 }
 ```
 
-`requiresEnv` yalnızca bootstrap'e aittir; config'e yazılmaz. Listedeki bir
-değişken tanımsızsa uyarı verilir, kurulum durmaz.
+`requiresEnv` ve `optionalEnv` yalnızca bootstrap'e aittir; config'e yazılmaz.
+
+- `requiresEnv`: bu değişken olmadan server çalışmaz → eksikse
+  `enabled: false` yazılır.
+- `optionalEnv`: server çalışır ama sınırlı → eksikse yalnızca uyarılır.
 
 Sonra `.env.example` dosyasına da anahtarı ekleyip `opencode-sync` çalıştırın.
 
@@ -291,7 +309,8 @@ temizlenir (yalnızca bu repo'nun eklediyse).
 
 - `.env` `.gitignore` içindedir; `.env.example` şablondur.
 - Config dosyasına yazılan şey `{env:CONTEXT7_API_KEY}` gibi bir
-  yer tutucudur, değerin kendisi değil.
+  yer tutucudur, değerin kendisi değil. (`{install:...}` kurulum anında
+  çözülür ve yalnızca secret olmayan değerler için kullanılır.)
 - OpenCode bu yer tutucuyu kendi process environment'ından çözer. Repo'nun
   `.env`'ini görmediği için bootstrap değerleri
   `~/.config/opencode/opencode-bootstrap/env.sh` dosyasına (mode `0600`) yazar
@@ -402,10 +421,19 @@ npx skills@latest add owner/repo@skill -g -a opencode -y
 En sık neden yanlış skill adıdır — `npx skills@latest add owner/repo -l` ile
 repository'deki gerçek adları listeleyin.
 
-**MCP server bağlanmıyor**
+**MCP server bağlanmıyor / devre dışı görünüyor**
 `opencode-doctor` ilgili env değişkenini uyarıyor mu? `.env` doldurulduktan
 sonra `opencode-sync` çalıştırıp **yeni bir shell açmanız** gerekir — env.sh
-ancak o zaman source edilir.
+ancak o zaman source edilir. Gerçek durumu OpenCode'un kendisinden görün:
+
+```bash
+opencode mcp list
+opencode debug config
+```
+
+**`opencode-sync` "No upstream branch configured" diyor**
+Repo'ya henüz remote eklenmemiş. Bu bir hata değildir; skill/MCP/config
+senkronizasyonu yine de çalışır.
 
 **Config bozuldu**
 Her yazma öncesi yedek alınır:

@@ -16,7 +16,7 @@ PROFILE="full"
 NO_PULL=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --profile)   PROFILE="${2:-}"; shift 2 ;;
+    --profile)   [ $# -ge 2 ] || die "--profile needs a value"; PROFILE="$2"; shift 2 ;;
     --profile=*) PROFILE="${1#*=}"; shift ;;
     --no-pull)   NO_PULL=1; shift ;;
     -h|--help)   printf 'Usage: opencode-sync [--profile NAME] [--no-pull]\n'; exit 0 ;;

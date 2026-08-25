@@ -98,6 +98,8 @@ fi
 section "Skills"
 PROFILE="${PROFILE:-full}"
 manifests="$(read_manifest "$REPO_DIR/skills/profiles.conf" | awk -F'|' -v p="$PROFILE" '$1==p {print $2; exit}' | tr ',' ' ')"
+# A bare manifest name works as a profile too, matching install-skills.sh.
+if [ -z "$manifests" ] && [ -f "$REPO_DIR/skills/$PROFILE.conf" ]; then manifests="$PROFILE"; fi
 [ -n "$manifests" ] || manifests="frontend backend database devops testing security"
 
 skill_missing=0

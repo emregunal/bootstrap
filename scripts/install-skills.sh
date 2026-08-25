@@ -12,7 +12,7 @@ PROFILE="${PROFILE:-full}"
 DRY_RUN="${DRY_RUN:-0}"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --profile) PROFILE="${2:-}"; shift 2 ;;
+    --profile) [ $# -ge 2 ] || die "--profile needs a value"; PROFILE="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     *) shift ;;
   esac
@@ -37,7 +37,7 @@ fi
 
 has npx || die "npx not found — install Node.js first."
 
-installed=0; failed=0; FAILED_LIST=()
+installed=0; failed=0
 mkdir -p "$SKILLS_HOME"
 
 for m in $MANIFESTS; do
@@ -64,7 +64,6 @@ for m in $MANIFESTS; do
       fail "$skill  ${C_DIM}($repo)${C_RESET}"
       hint "$(tail -n 3 "$log" | sed 's/\x1b\[[0-9;]*m//g' | tr -s ' ' | tr '\n' ' ')"
       failed=$((failed + 1))
-      FAILED_LIST+=("${repo}@${skill}")
     fi
     rm -f "$log"
   done < <(read_manifest "$f")

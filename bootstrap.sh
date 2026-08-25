@@ -33,7 +33,7 @@ USAGE
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --profile)     PROFILE="${2:-}"; shift 2 ;;
+    --profile)     [ $# -ge 2 ] || die "--profile needs a value"; PROFILE="$2"; shift 2 ;;
     --profile=*)   PROFILE="${1#*=}"; shift ;;
     --dry-run)     DRY_RUN=1; shift ;;
     --skip-skills) SKIP_SKILLS=1; shift ;;
