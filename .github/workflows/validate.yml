@@ -1,0 +1,173 @@
+name: validate
+
+# Everything here is read-only and credential-free by design. The workflow can
+# verify the repository's own consistency, but it never installs an agent and
+# never touches a real home directory — the behaviour suite runs in its
+# default read-only mode for exactly that reason.
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    name: shell syntax and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n on every script
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r f; do
+            if ! bash -n "$f"; then echo "::error file=$f::syntax error"; fail=1; fi
+          done < <(find . -name '*.sh' -not -path './.git/*'; find .githooks -type f)
+          exit $fail
+
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y shellcheck
+          # -x follows `source` directives so the shared library is analysed
+          # in context rather than reported as an unknown file.
+          find . -name '*.sh' -not -path './.git/*' -print0 \
+            | xargs -0 shellcheck -x -S warning
+          shellcheck -x -S warning .githooks/*
+
+      - name: every script accepts --help
+        run: |
+          set -euo pipefail
+          for s in bootstrap.sh update.sh doctor.sh uninstall.sh \
+                   scripts/setup/*.sh scripts/git/*.sh scripts/context/*.sh; do
+            "./$s" --help >/dev/null || { echo "::error::$s --help failed"; exit 1; }
+          done
+
+  manifests:
+    name: manifests and config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: JSON parses
+        run: |
+          set -euo pipefail
+          for f in mcp/mcps.json; do
+            node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$f"
+            echo "ok: $f"
+          done
+
+      - name: YAML parses
+        run: |
+          set -euo pipefail
+          python3 -c 'import yaml,sys;[yaml.safe_load(open(f)) for f in sys.argv[1:]]' .github/workflows/*.yml
+          echo "ok: workflows"
+
+      - name: skill manifests are well-formed
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in skills/*.conf; do
+            [ "$(basename "$f")" = profiles.conf ] && continue
+            while IFS='|' read -r repo skill; do
+              repo="$(echo "$repo" | tr -d '[:space:]')"; skill="$(echo "$skill" | tr -d '[:space:]')"
+              [ -z "$repo$skill" ] && continue
+              case "$repo" in */*) ;; *) echo "::error file=$f::'$repo' is not owner/repo"; fail=1 ;; esac
+              [ -n "$skill" ] || { echo "::error file=$f::missing skill name"; fail=1; }
+            done < <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$f")
+          done
+          exit $fail
+
+      - name: every profile names manifests that exist
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS='|' read -r profile list; do
+            [ -z "$profile" ] && continue
+            for m in $(echo "$list" | tr ',' ' '); do
+              [ -f "skills/$m.conf" ] || { echo "::error::profile '$profile' references missing skills/$m.conf"; fail=1; }
+            done
+          done < <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' skills/profiles.conf)
+          exit $fail
+
+      - name: MCP renders for every target
+        run: |
+          set -euo pipefail
+          export MCP_FILESYSTEM_ROOT=/tmp CONTEXT7_API_KEY=ci GITHUB_TOKEN=ci
+          while IFS= read -r name; do
+            [ -z "$name" ] && continue
+            node scripts/lib/mcp-render.mjs render --manifest mcp/mcps.json --target claude --server "$name" \
+              | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>JSON.parse(s))'
+            echo "ok: claude/$name"
+          done < <(node scripts/lib/mcp-render.mjs list --manifest mcp/mcps.json)
+          node scripts/lib/mcp-render.mjs render --manifest mcp/mcps.json --target codex > /tmp/r.toml
+          python3 -c 'import tomllib,sys;tomllib.load(open("/tmp/r.toml","rb"))'
+          echo "ok: codex TOML"
+
+  security:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      # The scan reads history, so the full clone is needed rather than a
+      # shallow one.
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: no credentials in tracked files
+        run: ./scripts/git/preflight.sh --secrets-only
+
+      - name: no credential files are tracked
+        run: |
+          set -euo pipefail
+          bad="$(git ls-files | grep -E '^(.*/)?(\.env|credentials\.json|secrets\.json|auth\.json|\.netrc|id_rsa|id_ed25519|.*\.pem|.*\.key)$' || true)"
+          if [ -n "$bad" ]; then echo "::error::credential files tracked:"; echo "$bad"; exit 1; fi
+          echo "ok: none tracked"
+
+  behaviour:
+    name: behaviour tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: git identity for the hook tests
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+
+      # Read-only mode: no agent is installed on the runner and none is
+      # needed. The suite tests the library, the adapters' contracts, the
+      # scanner, the hooks and the dry runs.
+      - name: behaviour suite
+        run: ./scripts/context/behavior-check.sh
+
+      - name: dry run makes no changes
+        run: |
+          set -euo pipefail
+          before="$(find "$HOME" -maxdepth 3 2>/dev/null | sort | md5sum)"
+          ./bootstrap.sh --dry-run --skip-skills || true
+          after="$(find "$HOME" -maxdepth 3 2>/dev/null | sort | md5sum)"
+          [ "$before" = "$after" ] || { echo "::error::--dry-run modified HOME"; exit 1; }
+          echo "ok: HOME unchanged"
+
+  macos:
+    name: behaviour tests (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: |
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+      # macOS ships bash 3.2 and BSD userland; this job is what keeps the
+      # platform.sh wrappers honest.
+      - run: ./scripts/context/behavior-check.sh

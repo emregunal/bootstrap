@@ -1,0 +1,69 @@
+{
+  "_comment": [
+    "MCP servers managed by ai-dev-bootstrap.",
+    "Each entry under `servers` is written in OpenCode's MCP schema",
+    "(https://opencode.ai/docs/mcp-servers/), which is the richest of the three.",
+    "scripts/lib/mcp-render.mjs translates it into Claude Code's JSON and Codex's",
+    "TOML, so there is one manifest rather than three that drift apart.",
+    "",
+    "Two placeholder forms are available. `{env:VAR}` is left in the config for",
+    "OpenCode to resolve at runtime -- use it for secrets. `{install:VAR}` is",
+    "resolved by bootstrap at install time -- use it for machine-specific values",
+    "such as paths, which should not depend on the launching shell.",
+    "",
+    "`requiresEnv` and `optionalEnv` are manifest-only metadata, stripped before",
+    "writing. `requiresEnv` lists variables the server cannot work without; if one",
+    "is missing the server is written disabled. `optionalEnv` lists variables that",
+    "only improve the server (higher rate limits), and never disable it.",
+    "A missing variable is a warning, never a fatal error: the server is written",
+    "with `enabled: false` so it cannot fail on every startup, and re-syncing",
+    "after the key is supplied enables it again.",
+    "",
+    "To add a server: append an entry under `servers`. Nothing else to change."
+  ],
+  "servers": {
+    "context7": {
+      "optionalEnv": ["CONTEXT7_API_KEY"],
+      "config": {
+        "type": "remote",
+        "url": "https://mcp.context7.com/mcp",
+        "enabled": true,
+        "headers": {
+          "Authorization": "Bearer {env:CONTEXT7_API_KEY}"
+        }
+      }
+    },
+    "github": {
+      "requiresEnv": ["GITHUB_TOKEN"],
+      "config": {
+        "type": "remote",
+        "url": "https://api.githubcopilot.com/mcp/",
+        "enabled": true,
+        "headers": {
+          "Authorization": "Bearer {env:GITHUB_TOKEN}"
+        }
+      }
+    },
+    "playwright": {
+      "requiresEnv": [],
+      "config": {
+        "type": "local",
+        "command": ["npx", "-y", "@playwright/mcp@latest"],
+        "enabled": true
+      }
+    },
+    "filesystem": {
+      "requiresEnv": [],
+      "config": {
+        "type": "local",
+        "command": [
+          "npx",
+          "-y",
+          "@modelcontextprotocol/server-filesystem@latest",
+          "{install:MCP_FILESYSTEM_ROOT}"
+        ],
+        "enabled": true
+      }
+    }
+  }
+}
