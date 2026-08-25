@@ -1,0 +1,24 @@
+# ---- secrets: never commit ----
+.env
+.env.*
+!.env.example
+
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+credentials.json
+secrets.json
+auth.json
+*.credentials
+.netrc
+
+# ---- local state ----
+*.local
+*.backup-*
+.DS_Store
+node_modules/
+*.log
