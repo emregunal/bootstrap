@@ -88,12 +88,39 @@ BACKUP_DONE=""
 backup_config_dir() {
   [ -n "$BACKUP_DONE" ] && return 0
   [ -d "$OPENCODE_CONFIG_DIR" ] || return 0
+
+  local cfg
+  cfg="$(config_file)"
+
+  # opencode-sync runs often and usually changes nothing. Snapshotting an
+  # unchanged config on every run would bury the one backup that matters, so
+  # skip when the newest backup already holds an identical config file.
+  local newest
+  newest="$(ls -d "${OPENCODE_CONFIG_DIR}".backup-* 2>/dev/null | sort | tail -1)"
+  if [ -n "$newest" ] && [ -f "$cfg" ] && [ -f "$newest/$(basename "$cfg")" ] \
+     && cmp -s "$cfg" "$newest/$(basename "$cfg")"; then
+    BACKUP_DONE="$newest"
+    return 0
+  fi
+
   local dest="${OPENCODE_CONFIG_DIR}.backup-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$dest"
   # tar keeps permissions and symlinks intact and lets us exclude node_modules.
   ( cd "$OPENCODE_CONFIG_DIR" && tar cf - --exclude=node_modules . ) | ( cd "$dest" && tar xf - )
   BACKUP_DONE="$dest"
   info "Backup: $dest"
+
+  # Keep the ten most recent; older ones are noise after a few weeks of syncs.
+  # Counted explicitly rather than with `head -n -10`, which is GNU-only.
+  local total prune
+  total="$(ls -d "${OPENCODE_CONFIG_DIR}".backup-* 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "${total:-0}" -gt 10 ]; then
+    prune=$((total - 10))
+    ls -d "${OPENCODE_CONFIG_DIR}".backup-* 2>/dev/null | sort | head -n "$prune" | while IFS= read -r stale; do
+      [ -n "$stale" ] && rm -rf "$stale"
+    done
+  fi
+  return 0
 }
 
 # ------------------------------------------------------------------ env ----

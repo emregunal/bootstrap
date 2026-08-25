@@ -40,6 +40,9 @@ elif [ -n "$(git -C "$REPO_DIR" status --porcelain)" ]; then
   warn "Local changes present — pull skipped so nothing is overwritten"
   git -C "$REPO_DIR" status --short | sed 's/^/  /'
   hint "Commit or stash your changes, then run opencode-sync again"
+elif ! git -C "$REPO_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+  info "No upstream branch configured — nothing to pull"
+  hint "git remote add origin <url> && git push -u origin \"$(git -C "$REPO_DIR" branch --show-current)\""
 else
   before="$(git -C "$REPO_DIR" rev-parse HEAD)"
   if git -C "$REPO_DIR" pull --ff-only >/dev/null 2>&1; then
