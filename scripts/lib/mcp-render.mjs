@@ -57,6 +57,23 @@ function substitute(value, resolveEnv) {
   return value;
 }
 
+// A header whose placeholder resolved to nothing is worse than no header at
+// all: `Authorization: Bearer ` is a malformed credential, where omitting the
+// header entirely lets the server fall back to anonymous access. So a header
+// is dropped rather than emptied. Decided from the RAW value, because the
+// resolved one no longer shows which variable was missing.
+function usableHeaders(rawHeaders, resolvedHeaders) {
+  if (!rawHeaders || !resolvedHeaders) return undefined;
+  const out = {};
+  for (const [k, raw] of Object.entries(rawHeaders)) {
+    const vars = String(raw).match(/\{(?:env|install):[A-Za-z_][A-Za-z0-9_]*\}/g) || [];
+    const unset = vars.some((p) => !process.env[p.replace(/^\{(?:env|install):/, "").replace(/\}$/, "")]);
+    if (unset) continue;
+    out[k] = resolvedHeaders[k];
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 // --- commands -------------------------------------------------------------
 if (cmd === "list") {
   process.stdout.write(Object.keys(servers).join("\n") + (Object.keys(servers).length ? "\n" : ""));
@@ -69,8 +86,11 @@ if (cmd === "status") {
   const e = entryOf(opt.server);
   const missing = (e.requiresEnv || []).filter((v) => !process.env[v]);
   const soft = (e.optionalEnv || []).filter((v) => !process.env[v]);
-  if (missing.length) process.stdout.write(missing.map((v) => `missing:${v}`).join("\n") + "\n");
-  else if (soft.length) process.stdout.write(soft.map((v) => `optional:${v}`).join("\n") + "\n");
+  // One line, always: every shell caller does `status="$(... status ...)"` and
+  // then `${status#missing:}`, which mangles a multi-line answer. When more
+  // than one variable is absent, naming the first is enough to act on.
+  if (missing.length) process.stdout.write(`missing:${missing[0]}\n`);
+  else if (soft.length) process.stdout.write(`optional:${soft[0]}\n`);
   else process.stdout.write("ok\n");
   process.exit(0);
 }
@@ -85,7 +105,8 @@ if (cmd === "render") {
     let out;
     if (c.type === "remote" || c.type === "http" || c.type === "sse") {
       out = { type: c.type === "remote" ? "http" : c.type, url: c.url };
-      if (c.headers && Object.keys(c.headers).length) out.headers = c.headers;
+      const headers = usableHeaders(e.config.headers, c.headers);
+      if (headers) out.headers = headers;
     } else {
       // OpenCode keeps argv as a single array; Claude Code wants it split.
       const argv = Array.isArray(c.command) ? c.command.slice() : [String(c.command)];
@@ -109,10 +130,11 @@ if (cmd === "render") {
       if (c.type === "remote" || c.type === "http" || c.type === "sse") {
         lines.push(`type = ${tomlString(c.type === "remote" ? "http" : c.type)}`);
         lines.push(`url = ${tomlString(c.url)}`);
-        if (c.headers && Object.keys(c.headers).length) {
+        const headers = usableHeaders(e.config.headers, c.headers);
+        if (headers) {
           lines.push("");
           lines.push(`[mcp_servers.${name}.http_headers]`);
-          for (const [k, v] of Object.entries(c.headers)) lines.push(`${k} = ${tomlString(v)}`);
+          for (const [k, v] of Object.entries(headers)) lines.push(`${k} = ${tomlString(v)}`);
         }
       } else {
         const argv = Array.isArray(c.command) ? c.command.slice() : [String(c.command)];

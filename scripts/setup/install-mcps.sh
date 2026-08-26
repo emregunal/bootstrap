@@ -61,7 +61,9 @@ else
       eval "val=\${$v:-}"
       # Only variables that actually have a value are written, and the value is
       # quoted, never echoed to the terminal.
-      [ -n "$val" ] && printf 'export %s=%s\n' "$v" "$(printf '%q' "$val")"
+      if [ -n "$val" ]; then
+        printf 'export %s=%s\n' "$v" "$(printf '%q' "$val")"
+      fi
     done
   } > "$ENV_BRIDGE"
   chmod 600 "$ENV_BRIDGE"

@@ -143,8 +143,12 @@ mcp-apply)
 
   # A config.toml Codex cannot parse would break every session, so the write is
   # verified and undone on failure rather than left for the user to discover.
-  if ! validate_toml "$CONFIG_TOML"; then
-    rc=$?
+  # The status is captured from validate_toml itself: inside `if ! cmd` the
+  # value of $? is the negation's status (always 0), which would hide the
+  # "no parser available" case and roll back a perfectly good file.
+  rc=0
+  validate_toml "$CONFIG_TOML" || rc=$?
+  if [ "$rc" != "0" ]; then
     if [ "$rc" = "2" ]; then
       warn "No TOML parser available — could not verify $(tilde "$CONFIG_TOML")"
     else

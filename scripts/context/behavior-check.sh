@@ -258,6 +258,71 @@ assert_eq "missing:GITHUB_TOKEN" "$out"
 t "status reports ok when nothing is required"
 assert_eq "ok" "$(node "$REPO_DIR/scripts/lib/mcp-render.mjs" status --manifest "$MANIFEST" --server playwright)"
 
+# A header whose placeholder cannot be resolved must be dropped, not written
+# empty: `Authorization: Bearer ` is a malformed credential where no header at
+# all means anonymous access.
+t "an unresolvable header is omitted rather than left empty"
+out="$(env -u CONTEXT7_API_KEY node "$REPO_DIR/scripts/lib/mcp-render.mjs" render --manifest "$MANIFEST" --target claude --server context7)"
+if printf '%s' "$out" | grep -q 'Bearer *"'; then nope "empty bearer written: $out"
+else pass "no header"; fi
+
+t "a resolvable header is still written"
+out="$(CONTEXT7_API_KEY=example-key-value node "$REPO_DIR/scripts/lib/mcp-render.mjs" render --manifest "$MANIFEST" --target claude --server context7)"
+printf '%s' "$out" | grep -q 'Bearer example-key-value' && pass || nope "$out"
+
+# ------------------------------------------------- config ownership ----------
+# The promise uninstall.sh makes is that a server the user configured stays
+# theirs. That has to survive repeated syncs: the bug this guards against was
+# recording a user-owned server as ours, so the *second* run overwrote it.
+section "Config ownership"
+
+OWN="$TMPROOT/own"
+mkdir -p "$OWN"
+cat > "$OWN/cfg.json" <<'EOF'
+{ "mcp": { "context7": { "type": "local", "command": ["users","own","server"] } }, "theme": "dark" }
+EOF
+for _ in 1 2; do
+  node "$REPO_DIR/scripts/lib/merge-config.mjs" apply \
+    --config "$OWN/cfg.json" --mcp "$MANIFEST" --state "$OWN/state.json" \
+    --servers context7,playwright >/dev/null 2>&1 || true
+done
+
+t "a user-owned MCP server survives two syncs untouched"
+out="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcp.context7.command||[]))' "$OWN/cfg.json")"
+assert_eq '["users","own","server"]' "$out"
+
+t "a user-owned server is never recorded as ours"
+out="$(node -e 'process.stdout.write(String((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcp||[]).includes("context7")))' "$OWN/state.json")"
+assert_eq "false" "$out"
+
+t "a server we do own is still applied alongside it"
+out="$(node -e 'process.stdout.write(String((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcp||[]).includes("playwright")))' "$OWN/state.json")"
+assert_eq "true" "$out"
+
+t "the user's unrelated config keys are preserved"
+out="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).theme||"")' "$OWN/cfg.json")"
+assert_eq "dark" "$out"
+
+# ---------------------------------------------- credential bridge ------------
+# install-mcps.sh writes the bridge under `set -e`. A trailing test that fails
+# used to take the whole script — and so the last step of bootstrap.sh — with
+# it, which is exactly what happens on a fresh machine with no .env at all.
+section "Credential bridge"
+
+t "install-mcps survives an environment with no keys set"
+BR="$TMPROOT/bridge"
+rc=0
+env -u GITHUB_TOKEN -u CONTEXT7_API_KEY AI_DEV_LOCAL_STATE="$BR" \
+  "$REPO_DIR/scripts/setup/install-mcps.sh" --agent __none__ >/dev/null 2>&1 || rc=$?
+assert_eq "0" "$rc"
+
+t "the bridge is written even when no credential exists"
+[ -f "$BR/env.sh" ] && pass || nope "no bridge at $BR/env.sh"
+
+t "the bridge holds no empty exports"
+if [ -f "$BR/env.sh" ] && grep -qE '^export [A-Z_]+=$' "$BR/env.sh"; then nope "empty export written"
+else pass; fi
+
 # ------------------------------------------------------------ secret scanner --
 section "Secret scanner"
 

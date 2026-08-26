@@ -113,8 +113,11 @@ if (cmd === "apply") {
       if (!entry) { console.error(`unknown-server:${name}`); continue; }
       const previouslyOurs = (state.mcp || []).includes(name);
       // A server the user configured themselves is theirs. We do not silently
-      // rewrite it; the caller reports it as skipped.
-      if (cfg.mcp[name] && !previouslyOurs) { console.error(`user-owned:${name}`); applied.push(name); continue; }
+      // rewrite it, and it must not enter `applied` either: `applied` becomes
+      // state.mcp, so recording it would make the next run see previouslyOurs
+      // and overwrite the very entry this branch exists to protect — and would
+      // make `remove` delete it on uninstall. Ownership never transfers.
+      if (cfg.mcp[name] && !previouslyOurs) { console.error(`user-owned:${name}`); continue; }
 
       const server = resolveInstallVars(entry.config);
       // requiresEnv: without the key the server fails on every startup, so it
