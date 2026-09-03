@@ -12,7 +12,9 @@ cd ~/ai-dev-bootstrap
 ./bootstrap.sh
 ```
 
-WSL Ubuntu ve Linux birincil hedeftir; macOS tam desteklenir.
+WSL Ubuntu ve Linux birincil hedeftir; macOS tam desteklenir. Native Windows
+Git Bash platformu tanınır ve temel kurulum/sağlık komutları çalışır; Windows'un
+POSIX symlink ve dosya modu sınırlamaları nedeniyle tam davranış için WSL önerilir.
 
 ---
 
@@ -107,6 +109,7 @@ ai-dev-bootstrap/
 ├── doctor.sh                 # ai-dev-doctor
 ├── uninstall.sh              # kurulanları geri alır
 ├── .env.example              # secret şablonu (gerçek .env asla commit edilmez)
+├── .gitattributes            # Windows checkout'larında metin dosyalarını LF tutar
 ├── .gitignore
 │
 ├── rules/
@@ -139,7 +142,7 @@ ai-dev-bootstrap/
 │   ├── lib/
 │   │   ├── common.sh              # yollar, exit code'lar, symlink/blok primitifleri
 │   │   ├── logging.sh             # tüm çıktı buradan geçer
-│   │   ├── platform.sh            # Linux / WSL / macOS farkları
+│   │   ├── platform.sh            # Linux / WSL / macOS / Windows farkları
 │   │   ├── merge-config.mjs       # OpenCode config'ini cerrahi düzenler
 │   │   ├── mcp-render.mjs         # manifest → agent lehçesi çevirisi
 │   │   └── secret-patterns.conf   # secret tarama pattern'leri

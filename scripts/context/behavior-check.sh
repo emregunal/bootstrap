@@ -88,20 +88,24 @@ done < <(read_manifest "$REPO_DIR/skills/profiles.conf")
 section "Platform detection"
 
 t "os_name returns a known platform"
-case "$(os_name)" in Linux|WSL|macOS) pass "$(os_name)" ;; *) nope "got '$(os_name)'" ;; esac
+case "$(os_name)" in Linux|WSL|macOS|Windows) pass "$(os_name)" ;; *) nope "got '$(os_name)'" ;; esac
 
-t "resolve_path follows a chain of symlinks"
 mkdir -p "$TMPROOT/real"
 echo hi > "$TMPROOT/real/file"
-ln -s "$TMPROOT/real/file" "$TMPROOT/link1"
-ln -s "$TMPROOT/link1" "$TMPROOT/link2"
-# The expectation is canonicalised with cd -P rather than written out, because
-# on macOS /var is itself a symlink to /private/var: resolve_path resolves the
-# directory too, and it is right to.
-assert_eq "$(cd -P "$TMPROOT/real" && pwd)/file" "$(resolve_path "$TMPROOT/link2")"
+if is_windows; then
+  t "POSIX symlink path tests are not claimed on native Windows"
+  pass "use WSL for symlink semantics"
+else
+  t "resolve_path follows a chain of symlinks"
+  ln -s "$TMPROOT/real/file" "$TMPROOT/link1"
+  ln -s "$TMPROOT/link1" "$TMPROOT/link2"
+  # The expectation is canonicalised with cd -P rather than written out,
+  # because on macOS /var is itself a symlink to /private/var.
+  assert_eq "$(cd -P "$TMPROOT/real" && pwd)/file" "$(resolve_path "$TMPROOT/link2")"
 
-t "link_target reports the recorded target, not the final file"
-assert_eq "$TMPROOT/link1" "$(link_target "$TMPROOT/link2")"
+  t "link_target reports the recorded target, not the final file"
+  assert_eq "$TMPROOT/link1" "$(link_target "$TMPROOT/link2")"
+fi
 
 t "hash_file agrees with itself and differs on different content"
 h1="$(hash_file "$TMPROOT/real/file")"
@@ -112,11 +116,12 @@ if [ -n "$h1" ] && [ "$h1" != "$h2" ]; then pass; else nope "h1='$h1' h2='$h2'";
 t "sed_inplace edits without changing the file mode"
 printf 'alpha\n' > "$TMPROOT/sedme"; chmod 640 "$TMPROOT/sedme"
 sed_inplace 's/alpha/beta/' "$TMPROOT/sedme"
-if [ "$(cat "$TMPROOT/sedme")" = "beta" ] && [ "$(file_mode "$TMPROOT/sedme")" = "640" ]; then pass
+if is_windows && [ "$(cat "$TMPROOT/sedme")" = "beta" ]; then pass "POSIX modes unavailable"
+elif [ "$(cat "$TMPROOT/sedme")" = "beta" ] && [ "$(file_mode "$TMPROOT/sedme")" = "640" ]; then pass
 else nope "content='$(cat "$TMPROOT/sedme")' mode=$(file_mode "$TMPROOT/sedme")"; fi
 
 t "file_mode returns octal permissions"
-assert_eq "640" "$(file_mode "$TMPROOT/sedme")"
+if is_windows; then pass "POSIX modes unavailable"; else assert_eq "640" "$(file_mode "$TMPROOT/sedme")"; fi
 
 # ------------------------------------------------------- symlink primitives --
 section "Symlink primitives"
@@ -128,22 +133,27 @@ t "link_state reports missing"
 assert_eq "missing" "$(link_state "$S/src" "$S/l")"
 
 t "ensure_symlink creates the link"
-assert_eq "created" "$(ensure_symlink "$S/src" "$S/l")"
+if is_windows; then
+  assert_eq "created" "$(ensure_symlink "$S/src" "$S/l")" "Git Bash may emulate this with a copy"
+  rm -f "$S/l"
+else
+  assert_eq "created" "$(ensure_symlink "$S/src" "$S/l")"
 
-t "ensure_symlink is idempotent"
-assert_eq "current" "$(ensure_symlink "$S/src" "$S/l")"
+  t "ensure_symlink is idempotent"
+  assert_eq "current" "$(ensure_symlink "$S/src" "$S/l")"
 
-t "link_state detects a link pointing elsewhere"
-ln -sf "$S/other" "$S/l"
-assert_eq "wrong" "$(link_state "$S/src" "$S/l")"
+  t "link_state detects a link pointing elsewhere"
+  ln -sf "$S/other" "$S/l"
+  assert_eq "wrong" "$(link_state "$S/src" "$S/l")"
 
-t "ensure_symlink repairs a wrong target"
-assert_eq "repaired" "$(ensure_symlink "$S/src" "$S/l")"
+  t "ensure_symlink repairs a wrong target"
+  assert_eq "repaired" "$(ensure_symlink "$S/src" "$S/l")"
 
-t "link_state detects a broken link"
-mv "$S/src" "$S/src.moved"
-assert_eq "broken" "$(link_state "$S/src" "$S/l")"
-mv "$S/src.moved" "$S/src"
+  t "link_state detects a broken link"
+  mv "$S/src" "$S/src.moved"
+  assert_eq "broken" "$(link_state "$S/src" "$S/l")"
+  mv "$S/src.moved" "$S/src"
+fi
 
 t "ensure_symlink refuses to replace a real file"
 echo mine > "$S/realfile"
@@ -217,6 +227,33 @@ for agent in $(adapter_list); do
   [ -n "$b" ] && badstatus="$badstatus $agent:$b"
 done
 [ -z "$badstatus" ] && pass || nope "$badstatus"
+
+t "skills installer uses canonical CLI agent ids and separate -a flags"
+FAKE_BIN="$TMPROOT/fake-bin"
+SKILL_ARGS_LOG="$TMPROOT/skill-args.log"
+mkdir -p "$FAKE_BIN" "$TMPROOT/fake-skills"
+for tool in claude codex opencode; do
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$FAKE_BIN/$tool"
+done
+cat > "$FAKE_BIN/npx" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$AI_DEV_NPX_LOG"
+EOF
+chmod +x "$FAKE_BIN"/*
+rc=0
+AI_DEV_NPX_LOG="$SKILL_ARGS_LOG" \
+PATH="$FAKE_BIN:$PATH" \
+CLAUDE_HOME="$TMPROOT/fake-claude" \
+CODEX_HOME="$TMPROOT/fake-codex" \
+OPENCODE_CONFIG_DIR="$TMPROOT/fake-opencode" \
+SKILLS_HOME="$TMPROOT/fake-skills" \
+  "$REPO_DIR/scripts/setup/install-skills.sh" --profile testing >/dev/null 2>&1 || rc=$?
+badargs="$(grep -vE -- ' -g -a claude-code -a codex -a opencode -y$' "$SKILL_ARGS_LOG" 2>/dev/null || true)"
+if [ "$rc" = "0" ] && [ "$(wc -l < "$SKILL_ARGS_LOG" | tr -d ' ')" = "3" ] && [ -z "$badargs" ]; then
+  pass
+else
+  nope "rc=$rc unexpected args: $badargs"
+fi
 
 # --------------------------------------------------------------- MCP render --
 section "MCP rendering"

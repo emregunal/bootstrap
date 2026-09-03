@@ -1,0 +1,4 @@
+# This repository is executed from POSIX shells, including WSL reading a
+# Windows checkout. Keep every detected text file on LF so shebangs work and
+# line-oriented manifests never acquire a trailing carriage return.
+* text=auto eol=lf

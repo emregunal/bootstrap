@@ -41,6 +41,13 @@ done
 [ -n "$AGENTS" ] || AGENTS="opencode"
 info "Target agents: $AGENTS"
 
+# The skills CLI takes one -a per agent; a comma-joined value is read as a
+# single (invalid) agent name. Build the repeated-flag argument list once.
+AGENT_FLAGS=()
+_old_ifs="$IFS"; IFS=','
+for _a in $AGENTS; do [ -n "$_a" ] && AGENT_FLAGS+=(-a "$_a"); done
+IFS="$_old_ifs"
+
 if ! command_exists npx; then
   if is_dry_run; then warn "npx not found — skills would be skipped"; exit "$EX_OK"; fi
   die "$EX_DEPS" "npx not found — install Node.js first."
@@ -71,7 +78,7 @@ for m in $MANIFESTS; do
     log="$(mktemp)"
     # stdin from /dev/null for two reasons: npx would otherwise swallow the
     # manifest lines this loop is reading, and the CLI would block on a prompt.
-    if npx -y skills@latest add "${repo}@${skill}" -g -a "$AGENTS" -y </dev/null >"$log" 2>&1; then
+    if npx -y skills@latest add "${repo}@${skill}" -g "${AGENT_FLAGS[@]}" -y </dev/null >"$log" 2>&1; then
       ok "$skill"
       installed=$((installed + 1))
     else

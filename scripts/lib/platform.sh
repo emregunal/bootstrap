@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# platform.sh — the only file allowed to care about Linux vs WSL vs macOS.
+# platform.sh — the only file allowed to care about Linux, WSL, macOS or Windows.
 # Sourced, never executed. Depends on logging.sh for debug() only.
 #
 # Every command with a known GNU/BSD split is wrapped here:
@@ -16,6 +16,9 @@ has() { command -v "$1" >/dev/null 2>&1; }
 # ------------------------------------------------------------- detection ----
 is_macos() { [ "$(uname -s)" = "Darwin" ]; }
 is_linux() { [ "$(uname -s)" = "Linux" ]; }
+is_windows() {
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; *) return 1 ;; esac
+}
 
 is_wsl() {
   [ -n "${WSL_DISTRO_NAME:-}" ] && return 0
@@ -23,18 +26,19 @@ is_wsl() {
   return 1
 }
 
-# One of: WSL, Linux, macOS, or the raw uname for anything else.
+# One of: WSL, Linux, macOS, Windows, or the raw uname for anything else.
 os_name() {
   case "$(uname -s)" in
     Linux)  if is_wsl; then echo "WSL"; else echo "Linux"; fi ;;
     Darwin) echo "macOS" ;;
+    MINGW*|MSYS*|CYGWIN*) echo "Windows" ;;
     *)      uname -s ;;
   esac
 }
 
 os_id() {
   case "$(os_name)" in
-    WSL) echo "wsl" ;; Linux) echo "linux" ;; macOS) echo "macos" ;; *) echo "unknown" ;;
+    WSL) echo "wsl" ;; Linux) echo "linux" ;; macOS) echo "macos" ;; Windows) echo "windows" ;; *) echo "unknown" ;;
   esac
 }
 
@@ -128,7 +132,7 @@ login_shell_rc() {
     */zsh)  printf '%s\n' "${ZDOTDIR:-$HOME}/.zshrc" ;;
     */bash) if is_macos && [ -f "$HOME/.bash_profile" ]; then printf '%s\n' "$HOME/.bash_profile"
             else printf '%s\n' "$HOME/.bashrc"; fi ;;
-    *)      return 1 ;;
+    *)      if is_windows; then printf '%s\n' "$HOME/.bashrc"; else return 1; fi ;;
   esac
 }
 

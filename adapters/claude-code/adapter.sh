@@ -49,7 +49,7 @@ paths)
   printf 'CONFIG_DIR=%s\n' "$CLAUDE_HOME"
   printf 'CONFIG_FILE=%s\n' "$HOME/.claude.json"
   printf 'MANAGED_DIR=%s\n' "$MANAGED"
-  printf 'SKILLS_AGENT=%s\n' "claude"
+  printf 'SKILLS_AGENT=%s\n' "claude-code"
   printf 'SUPPORTS_MCP=%s\n' "$(command_exists claude && echo yes || echo no)" ;;
 
 plan)
