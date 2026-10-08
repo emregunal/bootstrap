@@ -612,6 +612,10 @@ Single manifest: `mcp/mcps.json`. It is written in the OpenCode schema (the
 richest of the three); `scripts/lib/mcp-render.mjs` translates it into the
 other dialects.
 
+The manifest includes [UI Skills](https://www.ui-skills.com/mcp) as an enabled
+remote server for browsing the UI skills catalog. No environment variable is
+required; `ai-dev-sync` configures it in the detected agents.
+
 ```json
 {
   "servers": {
