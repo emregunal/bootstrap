@@ -283,6 +283,9 @@ case "$rc" in
   *) nope "$(head -5 "$TMPROOT/render.toml")" ;;
 esac
 
+t "codex rendering writes no 'type' key, which Codex does not define"
+grep -q '^type = ' "$TMPROOT/render.toml" && nope "$(grep -m1 '^type = ' "$TMPROOT/render.toml")" || pass
+
 t "install-time placeholders are resolved, runtime ones are not"
 out="$(MCP_FILESYSTEM_ROOT=/sentinel/path node "$REPO_DIR/scripts/lib/mcp-render.mjs" render --manifest "$MANIFEST" --target claude --server filesystem)"
 if printf '%s' "$out" | grep -q '/sentinel/path' && ! printf '%s' "$out" | grep -q '{install:'; then pass

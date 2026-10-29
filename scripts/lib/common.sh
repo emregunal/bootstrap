@@ -350,11 +350,13 @@ adapter_label() { adapter_run "$1" label 2>/dev/null || printf '%s' "$1"; }
 
 # ----------------------------------------------------------- validation -----
 # Each returns 0 valid, 1 invalid, 2 no parser available (caller reports skip).
+# python3 runs with -B: Apple's system Python otherwise caches bytecode under
+# $HOME/Library/Caches, and a check must not write anything.
 validate_json() {
   local f="$1"
   [ -f "$f" ] || return 1
   if command_exists node; then node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$f" >/dev/null 2>&1
-  elif command_exists python3; then python3 -c 'import json,sys;json.load(open(sys.argv[1]))' "$f" >/dev/null 2>&1
+  elif command_exists python3; then python3 -B -c 'import json,sys;json.load(open(sys.argv[1]))' "$f" >/dev/null 2>&1
   elif command_exists jq; then jq -e . "$f" >/dev/null 2>&1
   else return 2; fi
 }
@@ -370,16 +372,16 @@ validate_jsonc() {
 validate_toml() {
   local f="$1"
   [ -f "$f" ] || return 1
-  if command_exists python3 && python3 -c 'import tomllib' >/dev/null 2>&1; then
-    python3 -c 'import tomllib,sys;tomllib.load(open(sys.argv[1],"rb"))' "$f" >/dev/null 2>&1
+  if command_exists python3 && python3 -B -c 'import tomllib' >/dev/null 2>&1; then
+    python3 -B -c 'import tomllib,sys;tomllib.load(open(sys.argv[1],"rb"))' "$f" >/dev/null 2>&1
   else return 2; fi
 }
 
 validate_yaml() {
   local f="$1"
   [ -f "$f" ] || return 1
-  if command_exists python3 && python3 -c 'import yaml' >/dev/null 2>&1; then
-    python3 -c 'import yaml,sys;yaml.safe_load(open(sys.argv[1]))' "$f" >/dev/null 2>&1
+  if command_exists python3 && python3 -B -c 'import yaml' >/dev/null 2>&1; then
+    python3 -B -c 'import yaml,sys;yaml.safe_load(open(sys.argv[1]))' "$f" >/dev/null 2>&1
   else return 2; fi
 }
 

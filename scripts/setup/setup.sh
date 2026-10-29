@@ -81,6 +81,17 @@ if [ "$MISSING" = "1" ]; then
   exit "$EX_DEPS"
 fi
 
+# Present but too old is a warning, not a stop: rules, commands and hooks work
+# on any version; the skills CLI needs 22.20+ and the filesystem MCP server 24+.
+NODE_MAJOR="$(node --version 2>/dev/null | sed 's/^v//; s/\..*//' || true)"
+if [ "${NODE_MAJOR:-0}" -lt 24 ] 2>/dev/null; then
+  warn "Node.js 24 or later is needed for skills and the filesystem MCP server"
+  case "$(os_id)" in
+    macos) hint "brew upgrade node" ;;
+    *)     hint "curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - && sudo apt install -y nodejs" ;;
+  esac
+fi
+
 FOUND_AGENT=0
 for agent in $(adapter_list); do
   label="$(adapter_run "$agent" label)"
