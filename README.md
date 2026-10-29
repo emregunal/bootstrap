@@ -213,6 +213,10 @@ brew install node
 Required: `git`, `node`, `npm`, `npx`. If any is missing, `bootstrap.sh`
 stops with exit code **3** and prints the full install command.
 
+Node.js **24 or later** is expected: the `skills` CLI needs 22.20+ and the
+Filesystem MCP server 24+. An older version only produces a warning, since
+rules, commands and hooks do not depend on it.
+
 ### 2. Install at least one AI agent
 
 You do not need all three; **at least one** must be present. An agent that is
