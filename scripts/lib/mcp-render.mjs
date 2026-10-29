@@ -127,8 +127,8 @@ if (cmd === "render") {
       if (!e) continue;
       const c = substitute(e.config, true);
       lines.push(`[mcp_servers.${name}]`);
+      // Codex has no `type` key: a `url` is what makes a server streamable HTTP.
       if (c.type === "remote" || c.type === "http" || c.type === "sse") {
-        lines.push(`type = ${tomlString(c.type === "remote" ? "http" : c.type)}`);
         lines.push(`url = ${tomlString(c.url)}`);
         const headers = usableHeaders(e.config.headers, c.headers);
         if (headers) {
